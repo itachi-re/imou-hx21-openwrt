@@ -9,6 +9,7 @@
   <br/>
   <img src="https://img.shields.io/badge/VPN-WireGuard-88171A?style=flat-square&logo=wireguard&logoColor=white" alt="WireGuard">
   <img src="https://img.shields.io/badge/VPN-NetBird-0A69DA?style=flat-square" alt="NetBird">
+  <img src="https://img.shields.io/badge/VPN-Tailscale-101828?style=flat-square&logo=tailscale&logoColor=white" alt="Tailscale">
   <img src="https://img.shields.io/badge/QoS-CAKE%20%2F%20SQM-2C3E50?style=flat-square" alt="CAKE/SQM">
   <img src="https://img.shields.io/badge/Firewall-nftables%20(fw4)-CC0000?style=flat-square&logo=linux&logoColor=white" alt="firewall4/nftables">
   <br/>
@@ -61,14 +62,24 @@ If you're running the same board (or any recent MediaTek Filogic router) and are
 
 ```
 imou-hx21-openwrt/
-├── README.md                  ← you are here
+├── README.md                    ← you are here
 └── docs/
-    ├── installation-guide.md  ← flashing OpenWrt from stock: firmware files, backup,
-    │                             Linux/Windows/Android methods, recovery, UART, safety checklist
-    ├── complete-guide.md      ← post-install reference: package mgmt → SQM/QoS → WireGuard →
-    │                             firewall → diagnostics → backup → hardening → cheat sheet
-    └── vpn-netbird.md          ← NetBird install, routing peer, exit node, DNS, troubleshooting
+    ├── installation-guide.md    ← flashing OpenWrt from stock: firmware files, backup,
+    │                               Linux/Windows/Android methods, recovery, UART, safety checklist
+    ├── complete-guide.md        ← post-install reference: package mgmt → SQM/QoS → WireGuard →
+    │                               firewall → diagnostics → backup → hardening → cheat sheet
+    ├── vpn-netbird.md           ← NetBird install, routing peer, exit node, DNS, troubleshooting
+    ├── vpn-tailscale.md         ← Tailscale install, subnet router, exit node, Tailscale SSH,
+    │                               ACL overview, firewall4/nftables gotchas, removal
+    └── migrating-to-netbird.md  ← full NetBird install/config walkthrough, including a clean
+                                    Tailscale-removal section for anyone moving off it entirely
 ```
+
+> ⚠️ **Overlap note:** `migrating-to-netbird.md` is a self-contained NetBird guide (install →
+> routing peer → exit node → troubleshooting) with a Tailscale-removal section bolted onto the
+> front — it isn't a diff against `vpn-netbird.md`. Until these two get reconciled into one
+> doc, treat `migrating-to-netbird.md` as the one to follow if you're coming *from* Tailscale,
+> and `vpn-netbird.md` for a from-scratch NetBird install.
 
 ---
 
@@ -80,7 +91,8 @@ flowchart LR
     B --> C[apk package\nmanagement]
     C --> D[SQM / CAKE\nbufferbloat control]
     D --> E[WireGuard\nclient + server]
-    E --> F[NetBird\nmesh VPN]
+    E --> F1[Tailscale\nmesh VPN]
+    F1 -->|migrating-to-netbird.md| F[NetBird\nmesh VPN]
     F --> G[firewall4 / nftables\nhardening]
     G --> H[Diagnostics &\nbenchmarking]
     H --> I[Backup &\nrecovery drills]
@@ -159,6 +171,38 @@ Full walkthrough: [`docs/complete-guide.md` → Quick Start](docs/complete-guide
 | [Persistence](docs/vpn-netbird.md#7-persistence-across-reboots-and-firmware-upgrades) | Config survival across `sysupgrade` |
 | [Troubleshooting](docs/vpn-netbird.md#8-quick-troubleshooting-reference) | Symptom → cause → fix table |
 
+### [`docs/vpn-tailscale.md`](docs/vpn-tailscale.md) — Tailscale on OpenWrt
+
+| Section | Covers |
+|---|---|
+| [Check release & package manager](docs/vpn-tailscale.md#0-check-your-openwrt-release-and-package-manager-first) | `opkg` vs `apk` by OpenWrt version, flash-space requirements |
+| [Install the package](docs/vpn-tailscale.md#1-install-the-package) | Official feed package, `kmod-tun` dependency, optional LuCI front-ends |
+| [`ip6tables` gap on firewall4](docs/vpn-tailscale.md#3-known-gap-on-firewall4nftables-builds-missing-ip6tables) | Same `iptables-nft`/`ip6tables-nft` shim fix NetBird needs |
+| [Authenticate the router](docs/vpn-tailscale.md#4-authenticate-the-router) | Interactive browser login vs. non-interactive pre-auth key |
+| [Firewall integration](docs/vpn-tailscale.md#5-firewall-integration) | When a manual zone is/isn't needed, `--netfilter-mode`, anonymous-UCI-section deletion gotcha |
+| [DNS & MagicDNS](docs/vpn-tailscale.md#6-dns-and-magicdns) | Quad100 resolver, `--accept-dns`, forwarding `*.ts.net` via dnsmasq |
+| [Subnet router](docs/vpn-tailscale.md#7-subnet-router-advertise-your-lan-to-the-tailnet) | Advertising the LAN, admin-console route approval, `--accept-routes` |
+| [Exit node](docs/vpn-tailscale.md#8-exit-node-route-all-internet-traffic-through-the-router) | Advertise/approve/use, permission model, SNAT + subnet-router caveat |
+| [Tailscale SSH](docs/vpn-tailscale.md#9-tailscale-ssh-optional) | Tailnet-identity SSH, ACL-permission risk of locking yourself out |
+| [Removing Tailscale](docs/vpn-tailscale.md#12-removing-tailscale) | Points to the full removal walkthrough in `migrating-to-netbird.md` |
+| [Troubleshooting](docs/vpn-tailscale.md#13-quick-troubleshooting-reference) | Symptom → cause → fix table |
+
+### [`docs/migrating-to-netbird.md`](docs/migrating-to-netbird.md) — NetBird install, with a clean break from Tailscale
+
+| Section | Covers |
+|---|---|
+| [Check release & NetBird version](docs/migrating-to-netbird.md#0-check-your-openwrt-release-first) | `opkg`/`apk` and NetBird version by OpenWrt release, setup-key generation |
+| [Remove Tailscale completely first](docs/migrating-to-netbird.md#1-migrating-from-tailscale-remove-it-completely-first) | Clean logout, package purge, leftover state files, anonymous UCI zone/forwarding cleanup by index |
+| [Install the NetBird package](docs/migrating-to-netbird.md#2-install-the-netbird-package) | `opkg`/`apk` install across releases |
+| [`ip6tables` gap on firewall4](docs/migrating-to-netbird.md#32-known-gap-on-firewall4nftables-builds-missing-ip6tables) | The `wt0` interface never appearing until `iptables-nft`/`ip6tables-nft` are installed |
+| [Connect to your NetBird network](docs/migrating-to-netbird.md#4-connect-the-router-to-your-netbird-network) | Cloud vs. self-hosted, `Idle`/lazy-connection false alarms, relayed vs. P2P |
+| [DNS configuration](docs/migrating-to-netbird.md#5-dns-configuration-optional-only-if-you-use-netbird-dns-features) | Pinning NetBird's resolver off port 53, dnsmasq forwarding |
+| [Routing peer (LAN access)](docs/migrating-to-netbird.md#6-use-the-router-as-a-routing-peer-lan-access-from-other-netbird-peers) | Registering `wt0`, firewall zone, network-resource + ACL policy |
+| [Exit node](docs/migrating-to-netbird.md#7-use-the-router-as-an-internet-exit-node-route-your-traffic-through-the-routers-wan-ip) | Dashboard setup, Auto Apply, verifying via `ifconfig.me` |
+| [Known caveat — LAN exposure via exit nodes](docs/migrating-to-netbird.md#74-known-caveat--lan-exposure-through-exit-nodes) | netbirdio/netbird#5797, access-control-group mitigation, manual verification |
+| [Persistence](docs/migrating-to-netbird.md#8-persistence-across-reboots-and-firmware-upgrades) | Config path by OpenWrt version, confirmed survives reboot |
+| [Troubleshooting](docs/migrating-to-netbird.md#9-quick-troubleshooting-reference) | Symptom → cause → fix table, incl. Tailscale-removal-specific issues |
+
 ---
 
 ## 🩹 Troubleshooting highlights
@@ -168,32 +212,41 @@ A few of the sharper edges hit along the way — full detail in the linked secti
 - **`opkg` habits don't transfer.** OpenWrt 25.12 dropped `opkg` entirely for `apk`; there's no dual-mode router, and pasting `opkg install` on a 25.12 image just fails with "command not found." → [package management table](docs/complete-guide.md#opkg-vs-apk-a-quick-orientation)
 - **Duplicate firewall zones.** Some VPN packages (NetBird included) auto-create their own firewall zone on install. Adding a second one manually produces an nftables `redefinition of symbol` error on `firewall restart`. Always `uci show firewall | grep -i <service>` before adding a zone. → [NetBird firewall setup](docs/vpn-netbird.md#52-create-a-firewall-zone-and-allow-forwarding)
 - **SQM needs headroom, not your sync speed.** Setting SQM's download/upload to your ISP's advertised rate defeats the point — CAKE needs to be the bottleneck, not your ISP's box. → [SQM section](docs/complete-guide.md#2-sqm--smart-queue-management)
-- **NetBird exit-node LAN exposure (upstream issue).** Devices routed through this router as a NetBird exit node can reach the router's *entire LAN subnet*, not just the internet, even with a scoped ACL — [netbirdio/netbird#5797](https://github.com/netbirdio/netbird/issues/5797). Mitigation and a manual verification step are documented. → [exit node caveats](docs/vpn-netbird.md#64-known-caveat--lan-exposure-through-exit-nodes)
+- **NetBird exit-node LAN exposure (upstream issue).** Devices routed through this router as a NetBird exit node can reach the router's *entire LAN subnet*, not just the internet, even with a scoped ACL — [netbirdio/netbird#5797](https://github.com/netbirdio/netbird/issues/5797). Mitigation and a manual verification step are documented. → [exit node caveats](docs/migrating-to-netbird.md#74-known-caveat--lan-exposure-through-exit-nodes)
+- **`ip6tables` missing on firewall4/nftables builds — hits both NetBird and Tailscale identically.** Modern OpenWrt ships `nft` but not the legacy `iptables`/`ip6tables` shims that both daemons' firewall managers shell out to directly. Symptom: `wt0`/`tailscale0` never comes up, or the daemon errors on `status`/`down`. Fix once (`apk add iptables-nft ip6tables-nft`), and it covers both VPNs. → [NetBird](docs/migrating-to-netbird.md#32-known-gap-on-firewall4nftables-builds-missing-ip6tables) / [Tailscale](docs/vpn-tailscale.md#3-known-gap-on-firewall4nftables-builds-missing-ip6tables)
+- **Anonymous UCI firewall sections can't be deleted by name.** Zones/forwarding rules added via `uci add firewall zone` are anonymous — `uci delete firewall.tailscale_zone` (or `.netbird_zone`) fails with `Entry not found` even though the zone clearly exists. Find the real index first (`uci show firewall | grep -i <service>`) and delete by `@zone[N]`/`@forwarding[N]`, highest index first. → [Tailscale removal](docs/migrating-to-netbird.md#1-migrating-from-tailscale-remove-it-completely-first)
+- **Removing Tailscale for NetBird isn't just `apk del tailscale`.** The daemon deliberately leaves node-identity state behind (`/etc/config/tailscaled.state`, `/etc/tailscale/`) so a reinstall doesn't burn a new key — if you're leaving for good, that has to be wiped explicitly, and any LuCI front-end has to come off first or `apk del` refuses. → [full removal walkthrough](docs/migrating-to-netbird.md#1-migrating-from-tailscale-remove-it-completely-first)
 
 ---
 
 ## ⚠️ Known caveats
 
 - **Board support is young.** Imou HX21 / LC-HX3001 support merged upstream in **late 2025** — treat every command in this repo as something to verify against your own firmware build (upstream OpenWrt vs. ImmortalWrt), not a guaranteed copy-paste.
-- **256 MB RAM ceiling.** Running LuCI + WireGuard + NetBird + heavy logging simultaneously is workable but leaves little headroom — monitor with `free`.
-- **NetBird on arm64 is "less tested"** per NetBird's own docs (x86_64 is their most-exercised platform). Watch `dmesg`/`logread` after install.
-- **A bad firewall/network push over SSH can lock you out.** Every destructive command in `docs/complete-guide.md` is explicitly flagged — keep a physical-access recovery path available before editing `network` or `firewall` config remotely.
+- **256 MB RAM ceiling.** Running LuCI + WireGuard + NetBird/Tailscale + heavy logging simultaneously is workable but leaves little headroom — monitor with `free`. Tailscale alone needs roughly 20–25 MB of free flash for the official package; very low-flash devices may not have room for it.
+- **NetBird on arm64 is "less tested"** per NetBird's own docs (x86_64 is their most-exercised platform). Watch `dmesg`/`logread` after install. In practice on this HX21, the only real gap found was the shared `ip6tables-nft` dependency, not anything MT7981B/arm64-specific.
+- **Tailscale's free tier has limits** (3 users / 100 devices / 1 subnet router at time of writing) — check current limits in your account before planning around them, they change.
+- **Running a device as both a Tailscale subnet router and exit node with `--snat-subnet-routes=false` can drop upstream traffic**, per Tailscale's own docs — split the two roles across devices if you need both without SNAT.
+- **A bad firewall/network push over SSH can lock you out.** Every destructive command in `docs/complete-guide.md` is explicitly flagged — keep a physical-access recovery path available before editing `network` or `firewall` config remotely. The same caution applies to enabling Tailscale SSH as your only remote-access path: confirm your ACL policy actually grants it before relying on it, ideally with console access as a fallback while testing.
 
 ---
 
 ## 🛣️ Roadmap
 
+- [x] NetBird mesh VPN — install, routing peer, exit node ([`docs/vpn-netbird.md`](docs/vpn-netbird.md))
+- [x] Tailscale — install, subnet router, exit node, Tailscale SSH ([`docs/vpn-tailscale.md`](docs/vpn-tailscale.md))
+- [x] Tailscale → NetBird migration path, incl. full Tailscale removal ([`docs/migrating-to-netbird.md`](docs/migrating-to-netbird.md))
+- [ ] Reconcile `vpn-netbird.md` and `migrating-to-netbird.md` into a single canonical NetBird doc
 - [ ] Policy-based routing (PBR) between home (TP-Link WR850N v2) and work (HX21) routers
 - [ ] WireGuard site-to-site link home ↔ work
 - [ ] Automated config backup → offsite sync
 - [ ] banIP integration for inbound abuse mitigation
-- [ ] Writeup comparing NetBird vs. Tailscale on the same hardware
+- [ ] Writeup comparing NetBird vs. Tailscale on the same hardware — now that both docs exist, this is mostly a synthesis pass
 
 ---
 
 ## 📖 Sources & further reading
 
-Full citation list lives in [`docs/complete-guide.md` → Sources](docs/complete-guide.md#sources), covering the OpenWrt 25.12 release notes, the apk transition, CAKE/SQM references, firewall4 internals, and the Imou HX21 board-support merge threads. NetBird-specific sources are in [`docs/vpn-netbird.md` → Sources](docs/vpn-netbird.md#sources).
+Full citation list lives in [`docs/complete-guide.md` → Sources](docs/complete-guide.md#sources), covering the OpenWrt 25.12 release notes, the apk transition, CAKE/SQM references, firewall4 internals, and the Imou HX21 board-support merge threads. VPN-specific sources are in [`docs/vpn-netbird.md` → Sources](docs/vpn-netbird.md#sources), [`docs/vpn-tailscale.md` → Sources](docs/vpn-tailscale.md#sources), and [`docs/migrating-to-netbird.md` → Sources](docs/migrating-to-netbird.md#sources).
 
 ---
 
