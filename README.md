@@ -51,8 +51,14 @@ If you're running the same board (or any recent MediaTek Filogic router) and are
 | RAM | 256 MB DDR3 |
 | Flash | 128 MB SPI-NAND |
 | Switch | MediaTek MT7531AE — 4× 10/100/1000 Mbps |
-| Wi-Fi | MediaTek MT7976C, Wi-Fi 6 (AX3000-class, dual-band) |
+| Wi-Fi | Wi-Fi 6 (AX3000-class, dual-band) — driver reports `embedded [MediaTek MT7981]` on both radios, not a separate MT7976C part¹ |
 | OpenWrt target | `mediatek/filogic` |
+
+> ¹ Earlier hardware notes assumed a MT7976C companion radio based on typical MT7981B reference
+> designs. Two independent checks on this unit — `dmesg | grep -i mt7976` (empty) and `iwinfo`
+> (`Hardware: embedded [MediaTek MT7981]` on both `phy0` and `phy1`) — don't confirm that part
+> number and point toward the WiFi being handled by the SoC's own integrated WMAC instead. Kept
+> as an open question rather than a confirmed correction — see [`flashing-field-notes.md` §5.1](docs/flashing-field-notes.md#51-verify-both-radios-came-up).
 
 > 256 MB RAM and 128 MB flash are workable but not generous — every extra daemon (LuCI, multiple VPN clients, heavy logging) eats into the same budget the router needs for NAT offload and CAKE. See [`docs/complete-guide.md`](docs/complete-guide.md#hardware-overview) for what that means in practice.
 
@@ -71,8 +77,11 @@ imou-hx21-openwrt/
     ├── vpn-netbird.md           ← NetBird install, routing peer, exit node, DNS, troubleshooting
     ├── vpn-tailscale.md         ← Tailscale install, subnet router, exit node, Tailscale SSH,
     │                               ACL overview, firewall4/nftables gotchas, removal
-    └── migrating-to-netbird.md  ← full NetBird install/config walkthrough, including a clean
-                                    Tailscale-removal section for anyone moving off it entirely
+    ├── migrating-to-netbird.md  ← full NetBird install/config walkthrough, including a clean
+    │                               Tailscale-removal section for anyone moving off it entirely
+    └── flashing-field-notes.md  ← real backup/flash/first-boot session log: MTD partition dumps,
+                                    in-place `mtd write` flashing from stock SSH (no TFTP), the
+                                    post-flash IP change, opkg→apk mixup, wireless bring-up
 ```
 
 > ⚠️ **Overlap note:** `migrating-to-netbird.md` is a self-contained NetBird guide (install →
@@ -80,6 +89,12 @@ imou-hx21-openwrt/
 > front — it isn't a diff against `vpn-netbird.md`. Until these two get reconciled into one
 > doc, treat `migrating-to-netbird.md` as the one to follow if you're coming *from* Tailscale,
 > and `vpn-netbird.md` for a from-scratch NetBird install.
+>
+> **`flashing-field-notes.md` vs. `installation-guide.md`:** the installation guide is the
+> prescriptive, start-to-finish walkthrough (TFTP-based). The field notes document a *different*,
+> real session using an alternate method — in-place `mtd write` flashing over SSH from stock
+> firmware, no TFTP involved — kept as a chronological field report rather than folded into the
+> main guide. Cross-reference both if you're choosing a flashing method.
 
 ---
 
@@ -141,6 +156,19 @@ Full walkthrough: [`docs/complete-guide.md` → Quick Start](docs/complete-guide
 | [Recovery / Debrick](docs/installation-guide.md#15-recovery--debrick) / [UART Recovery](docs/installation-guide.md#16-uart-recovery) | Boot menu recovery paths, serial console fallback |
 | [Troubleshooting](docs/installation-guide.md#17-troubleshooting) | Symptom → cause → fix, incl. common TFTP failures |
 | [Safety Checklist](docs/installation-guide.md#19-safety-checklist) | Pre-flight checks before any `bl2`/`fip` write |
+
+### [`docs/flashing-field-notes.md`](docs/flashing-field-notes.md) — real backup/flash session, alternate method
+
+| Section | Covers |
+|---|---|
+| [Stock firmware has open root SSH](docs/flashing-field-notes.md#0-starting-point-stock-firmware-already-has-open-root-ssh) | No unlock file needed on this firmware revision — verify on your own unit before relying on it |
+| [Back up stock partitions](docs/flashing-field-notes.md#1-back-up-stock-partitions-before-touching-anything) | MTD layout, `dd` + `scp -O` workflow, the nested-SSH chunking trap, `md5sum` verification |
+| [Flash via `mtd write`](docs/flashing-field-notes.md#2-flashing-openwrt-in-place-via-mtd-write-from-stock-firmware) | In-place FIP flash from a live stock-firmware SSH session — no TFTP required |
+| [Post-flash IP change](docs/flashing-field-notes.md#24-the-routers-lan-ip-changes-after-this-flash) | Router moves from `192.168.10.1` (stock) to `192.168.1.1` (OpenWrt default) |
+| [Recovering host connectivity](docs/flashing-field-notes.md#3-recovering-host-network-connectivity-after-the-reboot) | DHCP race after reboot, static-IP workaround |
+| [First boot](docs/flashing-field-notes.md#4-first-boot-on-openwrt) | Confirming the build, `opkg` vs `apk`, temporary manual route for `apk update` before WAN is set up |
+| [Wireless configuration](docs/flashing-field-notes.md#5-wireless-configuration) | `uci` SSID/radio setup, `default_radio1` disabled by default, country code, DFS-avoidance channel note |
+| [Troubleshooting](docs/flashing-field-notes.md#7-quick-troubleshooting-reference) | Symptom → cause → fix table |
 
 ### [`docs/complete-guide.md`](docs/complete-guide.md) — the core post-install reference
 
@@ -216,6 +244,9 @@ A few of the sharper edges hit along the way — full detail in the linked secti
 - **`ip6tables` missing on firewall4/nftables builds — hits both NetBird and Tailscale identically.** Modern OpenWrt ships `nft` but not the legacy `iptables`/`ip6tables` shims that both daemons' firewall managers shell out to directly. Symptom: `wt0`/`tailscale0` never comes up, or the daemon errors on `status`/`down`. Fix once (`apk add iptables-nft ip6tables-nft`), and it covers both VPNs. → [NetBird](docs/migrating-to-netbird.md#32-known-gap-on-firewall4nftables-builds-missing-ip6tables) / [Tailscale](docs/vpn-tailscale.md#3-known-gap-on-firewall4nftables-builds-missing-ip6tables)
 - **Anonymous UCI firewall sections can't be deleted by name.** Zones/forwarding rules added via `uci add firewall zone` are anonymous — `uci delete firewall.tailscale_zone` (or `.netbird_zone`) fails with `Entry not found` even though the zone clearly exists. Find the real index first (`uci show firewall | grep -i <service>`) and delete by `@zone[N]`/`@forwarding[N]`, highest index first. → [Tailscale removal](docs/migrating-to-netbird.md#1-migrating-from-tailscale-remove-it-completely-first)
 - **Removing Tailscale for NetBird isn't just `apk del tailscale`.** The daemon deliberately leaves node-identity state behind (`/etc/config/tailscaled.state`, `/etc/tailscale/`) so a reinstall doesn't burn a new key — if you're leaving for good, that has to be wiped explicitly, and any LuCI front-end has to come off first or `apk del` refuses. → [full removal walkthrough](docs/migrating-to-netbird.md#1-migrating-from-tailscale-remove-it-completely-first)
+- **`scp` to/from the router fails with `sftp-server: not found`.** Stock and early OpenWrt builds' BusyBox `ash` has no SFTP subsystem, but modern `scp` defaults to SFTP. Force the legacy protocol with `scp -O` in both directions. → [backup workflow](docs/flashing-field-notes.md#13-gotcha-scp-pull-from-the-router-fails-outright)
+- **Never nest an `ssh ... dd` loop inside an already-open SSH session to the same router.** Doing so spawns a nested connection back to itself and stalls on a host-key prompt. Run per-chunk backup loops from your host machine's own terminal. → [MTD dump walkthrough](docs/flashing-field-notes.md#14-dumping-the-1145mb-ubi-partition)
+- **The router's LAN IP changes after an in-place flash.** Stock firmware answers at `192.168.10.1`; after flashing OpenWrt and rebooting, it comes back at the default `192.168.1.1` — a different subnet. `ssh root@192.168.10.1` hanging right after a flash usually just means the router moved, not that something broke. → [IP change note](docs/flashing-field-notes.md#24-the-routers-lan-ip-changes-after-this-flash)
 
 ---
 
@@ -227,6 +258,8 @@ A few of the sharper edges hit along the way — full detail in the linked secti
 - **Tailscale's free tier has limits** (3 users / 100 devices / 1 subnet router at time of writing) — check current limits in your account before planning around them, they change.
 - **Running a device as both a Tailscale subnet router and exit node with `--snat-subnet-routes=false` can drop upstream traffic**, per Tailscale's own docs — split the two roles across devices if you need both without SNAT.
 - **A bad firewall/network push over SSH can lock you out.** Every destructive command in `docs/complete-guide.md` is explicitly flagged — keep a physical-access recovery path available before editing `network` or `firewall` config remotely. The same caution applies to enabling Tailscale SSH as your only remote-access path: confirm your ACL policy actually grants it before relying on it, ideally with console access as a fallback while testing.
+- **Stock firmware (at least on this unit) ships with unauthenticated root SSH.** No password, no unlock file needed — SSH just drops into a root shell. Set a password immediately on first access (`passwd`), before the device is anywhere near a real LAN or WAN. This may be firmware-revision-specific; verify on your own unit rather than assuming. → [details](docs/flashing-field-notes.md#0-starting-point-stock-firmware-already-has-open-root-ssh)
+- **`5GHz` radio ships disabled by default.** `wireless.default_radio1.disabled` defaults to `'1'` — a `uci commit` that only sets SSID/key on radio1 will succeed with no error while the radio stays off. Explicitly set `disabled='0'`. → [wireless setup](docs/flashing-field-notes.md#5-wireless-configuration)
 
 ---
 
@@ -235,6 +268,8 @@ A few of the sharper edges hit along the way — full detail in the linked secti
 - [x] NetBird mesh VPN — install, routing peer, exit node ([`docs/vpn-netbird.md`](docs/vpn-netbird.md))
 - [x] Tailscale — install, subnet router, exit node, Tailscale SSH ([`docs/vpn-tailscale.md`](docs/vpn-tailscale.md))
 - [x] Tailscale → NetBird migration path, incl. full Tailscale removal ([`docs/migrating-to-netbird.md`](docs/migrating-to-netbird.md))
+- [x] Real-world backup/flash/first-boot session log, alternate `mtd write` flashing method ([`docs/flashing-field-notes.md`](docs/flashing-field-notes.md))
+- [ ] Confirm the actual 5GHz companion-radio part number (MT7976C vs. SoC-integrated) — current evidence points against MT7976C, not confirmed either way
 - [ ] Reconcile `vpn-netbird.md` and `migrating-to-netbird.md` into a single canonical NetBird doc
 - [ ] Policy-based routing (PBR) between home (TP-Link WR850N v2) and work (HX21) routers
 - [ ] WireGuard site-to-site link home ↔ work
